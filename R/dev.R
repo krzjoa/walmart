@@ -82,6 +82,13 @@ library(fable)
 library(ggplot2)
 
 
+
+# Sudo password to run a service
+# https://stackoverflow.com/questions/23186960/run-a-system-command-as-sudo-from-r
+# system("sudo service clickhouse-server start", input = rstudioapi::askForPassword("sudo password"))
+# https://blog.cerebralab.com/Clickhouse,_an_analytics_database_for_the_21st_century
+
+
 # https://programmer.help/blogs/how-to-choose-clickhouse-table-engine.html
 dbSendQuery(con, "CREATE TABLE test_tbl (
   id UInt16,
@@ -98,3 +105,11 @@ sql <- glue("ALTER TABLE test_tbl ADD COLUMN {col} Float32") %>%
   as.character()
 query <- dbSendQuery(con, sql)
     
+
+
+
+
+ggplot(raw.data) +
+  geom_histogram(aes(x = sold), bins = 100) -> p
+
+plotly::ggplotly(p)

@@ -1,10 +1,5 @@
 DB.INSERT.CHUNKS <- 2000
 
-# Sudo password to run a service
-# https://stackoverflow.com/questions/23186960/run-a-system-command-as-sudo-from-r
-# system("sudo service clickhouse-server start", input = rstudioapi::askForPassword("sudo password"))
-# https://blog.cerebralab.com/Clickhouse,_an_analytics_database_for_the_21st_century
-
 # dbSendQuery(con, "SET max_query_size = 250000000")
 # dbSendQuery(con, "SET max_ast_elements = 50000000")
 
@@ -75,7 +70,7 @@ create_store_item_forecast_table <- function(con, sales, calendar, name){
   
   setDT(sales)
   all.products <- sales %>% 
-    .[, .(n = .N), by = .(store_id, item_id)] %>% 
+    .[, .(n = .N), by = .(store_id, item_id, cat_id, dept_id)] %>% 
     .[, !c("n")]
   
   forecast.item.days <-  tidyr::crossing(all.products, date)
@@ -85,6 +80,8 @@ create_store_item_forecast_table <- function(con, sales, calendar, name){
     dbSendQuery(con, 
       "CREATE TABLE forecast_item_store (
          store_id String,
+         cat_id String,
+         dept_id String,
          item_id String,
          date Date
       ) ENGINE = MergeTree
