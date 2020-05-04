@@ -6,6 +6,9 @@ VARIABLES <- "sales.store_id as store_id,
               sales.value as sold, 
               prices.sell_price as price"
 
+
+
+
 # Get list of items without forecast
 add_forecast_column <- function(con, col){
   if (!(col %in% dbListFields(con, FORECAST.ITEM.STORE.TABLE))){
@@ -38,6 +41,10 @@ get_batches <- function(store.items){
   return(batches)
 }
 
+current_batch <- function(store.cats){
+  return(store.cats[1, ])
+}
+
 # Sample data
 # query <- dbSendQuery(con,
 #                      "SELECT * FROM sales
@@ -61,12 +68,31 @@ fetch_data <- function(con, store.cats, colnames){
   return(dbFetch(query))
 }
 
+
+fetch_new_data <- function(con, store.cats, colnames){
+  # First store on list of stores to be computed
+  first.store <- store.cats$store_id[1]
+  first.cat <- store.cats$dept_id[1]
+  sql <- glue(
+    "SELECT {colnames} FROM sales 
+     LEFT JOIN calendar ON sales.date = calendar.date
+     LEFT JOIN prices ON sales.wm_yr_wk = prices.wm_yr_wk AND 
+               sales.item_id = prices.item_id AND sales.store_id = prices.store_id
+     WHERE store_id = '{first.store}' AND dept_id = '{first.cat}'"
+  )
+  query <- dbSendQuery(con, sql)
+  return(dbFetch(query))
+}
+
+
+# DATA PREPROCESSING ------------------------------------------------------
 trim_trailing_zero_sales <- function(raw.data){
   setDT(raw.data)
   setorder(raw.data, date)
   trimmed.data <- raw.data[, trimmed := (cumsum(sold) != 0), 
                            by = .(store_id, item_id)]
   trimmed.data <- trimmed.data[trimmed == TRUE]
+  trimmed.data <- trimmed.data[, !c("trimmed")]
   return(trimmed.data)
 }
 
@@ -74,10 +100,10 @@ add_sales_value_lags <- function(trimmed_data, lags){
   
 }
 
-# fit and predict ---------------------------------------------------------
+prepare_new_data <- 
 
+# fit and predict ---------------------------------------------------------
 fit_predict_xgboost <- function(train.data, new.data){
-  
   # Declare model
   model <- boost_tree() %>%
     set_mode("regression") %>%
@@ -85,14 +111,12 @@ fit_predict_xgboost <- function(train.data, new.data){
   #  fit(sales.value ~ prices.sell_price, data = sample.data)
   
   # Run model for all the products in the batch
-  
+  models <- trimmed.data %>% 
+    .[, .(model = list(fit(model, sold ~ price, data = .SD))), 
+      by = .(store_id, item_id)]
   
   # Generate predictions
-  
-  
-  # Insert preictions to database
-  
-  
+
 }
 
 
@@ -102,18 +126,23 @@ fit_predict_xgboost <- function(train.data, new.data){
 
 xgboost.plan <- drake_plan(
   # Prepare column for writing output
-  fct.column    = add_forecast_column(con, FCT.COL),
+  fct.column        = add_forecast_column(con, FCT.COL),
   # Prepare store/item list
-  item.list     = item_list(con, FCT.COL),
-  store.items   = get_store_items(item.list),
-  batches       = get_batches(store.items),
+  item.list         = item_list(con, FCT.COL),
+  store.items       = get_store_items(item.list),
+  batches           = get_batches(store.items),
+  current.batch     = current_batch(batches),
   # Preparing data for modelling
-  raw.data      = fetch_data(con, batches, VARIABLES),
-  trimmed_data  = trim_trailing_zero_sales(raw.data),
-  lagged.data   = NULL,
+  raw.data          = fetch_data(con, batches, VARIABLES),
+  trimmed.data      = trim_trailing_zero_sales(raw.data),
+  train.data        = NULL,
+  # Preparing new data
+  raw.new.data      = fetch_new_data(),
+  prepared.new.data = prepare_new_data(trimmed.data),
   # Training & forecast
-  #fit.xgboost  = fit_predict_xgboost()
+  #fit.xgboost  = fit_predict_xgboost(train.data, new.data)
+  # Saving forecasts
 )
   
 make(xgboost.plan)
-loadd("raw.data")
+loadd("trimmed.data")
