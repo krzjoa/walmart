@@ -29,8 +29,8 @@ library(RClickhouse)
 # getOption("keyring_keyring")
 # https://wiki.archlinux.org/index.php/GNOME/Keyring
 
-
 options(keyring_keyring = "test")
+keyring::keyring_unlock("test")
 # options(keyring_backend = "secret_service")
 
 # keyring::backend_secret_service$new() -> ss
@@ -41,7 +41,7 @@ options(keyring_keyring = "test")
 # ss$set("clickhouse.pwd")
 # keyring::default_backend(keyring = "test")
 # keyring::backend_secret_service$new()
-keyring::key_set("clickhouse.pwd")
+# keyring::key_set("clickhouse.pwd")
 
 # Setup connection
 con <- dbConnect(drv      = RClickhouse::clickhouse(), 
