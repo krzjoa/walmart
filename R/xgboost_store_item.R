@@ -30,7 +30,13 @@ NEW.DATA.VARS <- as.character(glue("
   calendar.snap_CA, calendar.snap_TX, calendar.snap_WI
 "))
 
-LAGS <- c(1, 2, 3, 7, 14)
+LAGS    <- c(1, 2, 3, 7, 14)
+FACTORS <- c('event_name_1',
+             'event_type_1',
+             'event_name_2',
+             'event_type_2')
+
+VARIABLES <- sold ~ 
 
 #'  [1] "sales.item_id"         "sales.dept_id"         "sales.cat_id"          "sales.store_id"        "sales.state_id"        "sales.value"          
 #'  [7] "sales.date"            "sales.wm_yr_wk"        "sales.row_names"       "calendar.date"         "calendar.wm_yr_wk"     "calendar.weekday"     
@@ -144,14 +150,34 @@ add_sales_lags_new_data <- function(raw.new.data, train.data, lags){
   last.dates <- tail(sort(unique(train.data$date)), max.lag)
   train.data.ending <- train.data[date >= min(last.dates)]
   train.data.ending[, is.train := TRUE]
+  setDT(raw.new.data)
+  raw.new.data[, is.train := FALSE]
   binded <- rbindlist(list(
-    raw.new.data[, is.train := FALSE], train.data.ending
+    raw.new.data, train.data.ending
   ), use.names = TRUE, fill = TRUE)
   setorder(binded, date)
   binded[, paste0('sold_lag', lags) := shift(.SD, lags), 
                by = .(item_id, store_id), .SDcols = "sold"]
-  return(binded[is.train := FALSE])
+  return(binded[is.train != FALSE])
 } 
+
+match_calendar_snap <- function(data){
+  setDT(data)
+  data[, snap := case_when(
+    grepl("CA", store_id) ~ calendar.snap_CA,
+    grepl("TX", store_id) ~ calendar.snap_TX,
+    grepl("WI", store_id) ~ calendar.snap_WI
+  )]
+  data <- data[, !c("calendar.snap_CA", "calendar.snap_TX", "calendar.snap_WI")]
+  return(data)
+}
+
+factorize_columns <- function(data, factors){
+  setDT(data)
+  data <- data %>% 
+    mutate_at(factors, as.factor)
+  return(data)
+}
 
 # fit and predict ---------------------------------------------------------
 fit_predict_xgboost <- function(train.data, new.data){
@@ -185,9 +211,13 @@ xgboost.plan <- drake_plan(
   raw.data          = fetch_data(con, current.batch, DATA.VARS),
   trimmed.data      = trim_trailing_zero_sales(raw.data),
   lagged.data       = add_sales_lags(trimmed.data, c(1, 2, 3, 7, 14)),
+  reduced.data      = match_calendar_snap(lagged.data),
+  data.with.factors = factorize_columns(reduced.data, FACTORS),
   # Preparing new data
   raw.new.data      = fetch_new_data(con, current.batch, NEW.DATA.VARS),
   prepared.new.data = add_sales_lags_new_data(raw.new.data, lagged.data, LAGS),
+  reduced.new.data  = match_calendar_snap(prepared.new.data),
+  new.data.with.factors = factorize_columns(reduced.new.data, FACTORS)
   # Training & forecast
   #fit.xgboost  = fit_predict_xgboost(train.data, new.data)
   # Saving forecasts
@@ -195,4 +225,4 @@ xgboost.plan <- drake_plan(
 )
   
 make(xgboost.plan)
-loadd("lagged.data")
+loadd("prepared.new.data")
