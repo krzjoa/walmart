@@ -60,7 +60,22 @@ db_batch_save <- function(con, df, name, chunks){
   return(TRUE)
 }
 
+create_fct_list <- function(sales, calendar){
+  max.date.sales <- max(sales$date)
+  date <- calendar %>% 
+    filter(date > max.date.sales) %>% 
+    .$date
+  
+  setDT(sales)
+  all.products <- sales %>% 
+    .[, .(n = .N), by = .(store_id, item_id, cat_id, dept_id)] %>% 
+    .[, !c("n")]
+  
+  forecast.item.days <-  tidyr::crossing(all.products, date)
+  return(forecast.item.days)
+}
 
+#' Forecast item store table
 create_store_item_forecast_table <- function(con, sales, calendar, name){
   
   max.date.sales <- max(sales$date)
@@ -98,6 +113,24 @@ create_store_item_forecast_table <- function(con, sales, calendar, name){
   return(TRUE)
 }
 
+
+create_forecast_table <- function(con, tbl){
+  if (!dbExistsTable(con, tbl))
+    dbSendQuery(con, 
+                as.character(glue("CREATE TABLE {tbl} (
+         store_id String,
+         cat_id String,
+         dept_id String,
+         item_id String,
+         date Date,
+         model String,
+         forecast Float32
+      ) ENGINE = MergeTree
+        PRIMARY KEY (store_id, item_id, date)
+        ORDER BY (store_id, item_id, date)"))
+    )
+}
+
 # Prepare data
 data.plan <- drake_plan(
   # Files
@@ -113,10 +146,12 @@ data.plan <- drake_plan(
   db.prices   = db_save(con, prices.prepared, "prices"),
   # db.sales.long = db_batch_save(con, sales.long, "sales", DB.INSERT.CHUNKS),
   # Create table for forecasts
-  db.forecast.items.store = create_store_item_forecast_table(con, sales.long, 
-                                                             calendar.prepared, FORECAST.ITEM.STORE.TABLE)
+  # db.forecast.items.store = create_store_item_forecast_table(con, sales.long, 
+  #                                                            calendar.prepared, FORECAST.ITEM.STORE.TABLE),
+  db.fct.items = create_forecast_table(con, FORECAST.STORE.ITEM.TABLE)
+  # fct.list = create_fct_list(sales.long, calendar.prepared)
 )
 
 make(data.plan, garbage_collection = TRUE,
      memory_strategy = 'preclean')
-  
+    
