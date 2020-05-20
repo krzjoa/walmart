@@ -12,6 +12,8 @@ prices     <- fst::read_fst("../data/prices.fst")
 sales      <- fst::read_fst("../data/sales_train_validation.fst")
 sales.long <- fst::read_fst("../data/sales_long.fst")
 
+    sample.submission <- read.csv("../data/sample_submission.csv")
+
 # As disk.frame
 library(disk.frame)
 

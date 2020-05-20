@@ -237,10 +237,6 @@ save_results <- function(con, tbl, fct.col, fct){
   return(fct)
 }
 
-# save_results <- function(fct, FCT.COL){
-#   
-# }
-
 loop_condition <- function(){
   batches <- tryCatch(readd(batches), error = function(e) FALSE)
   if (is.logical(batches))
@@ -249,6 +245,16 @@ loop_condition <- function(){
     return(TRUE)
   else
     return(FALSE)
+}
+
+
+fetch_predictions <- function(con, model){
+  sql <- glue(
+    "SELECT * FROM {FORECAST.STORE.ITEM.TABLE} 
+     WHERE model = '{model}'"
+  )
+  query <- dbSendQuery(con, sql)
+  return(dbFetch(query))
 }
 
 # How to schedule looped plan?
@@ -275,15 +281,47 @@ xgboost.plan <- drake_plan(
   prepared.new.data = add_sales_lags_new_data(raw.new.data, lagged.data, LAGS),
   reduced.new.data  = match_calendar_snap(prepared.new.data),
   new.data.with.factors = factorize_columns(reduced.new.data, FACTORS),
-  # Training & forecast
+  # Training & forecast 
   fit.xgboost       = fit_predict_xgboost(XGB.V1.FORMULA, data.with.factors, new.data.with.factors),
   postprocessed     = {setDT(fit.xgboost); fit.xgboost[.pred < 0, .pred := 0]},
   # Saving forecasts
   xgb.fct.v1 = save_results(con, FORECAST.ITEM.STORE.TABLE,
                                FCT.COL, postprocessed)
-)
+  # Prepare submission
   
+)
+
+while (nrow(readd(batches))) {
+  make(xgboost.plan)
+}
 
 
-make(xgboost.plan)
-loadd(batches)
+fcast <- fetch_predictions(con, FCT.COL)
+setDT(fcast)
+fcast <- unique(fcast)
+fcast[, id := paste0(item_id, "_", store_id, "_validation")]
+fcast <- fcast[, .(id, date, forecast)]
+fcast <- fcast %>% 
+  setorder(date) %>% 
+  .[date > as.Date('2016-05-22')] %>% 
+  .[, time := paste0("F", 1:.N), by = id]
+
+setDT(calendar)
+dates <- calendar[, .(date, d)] %>% 
+  .[, date := lubridate::as_date(date)] %>% 
+  .[date > as.Date('2016-05-22')]
+  
+fcast <- fcast %>% 
+  tidyr::pivot_wider(id, names_from = time, values_from = forecast)
+
+sample.submission <- read.csv("../data/sample_submission.csv")
+
+# write.csv(fcast, "submission_xgboost_v1.csv")
+fwrite(fcast, "submission_xgboost_v1.csv")
+
+# make(xgboost.plan)
+# loadd(batches)
+View(head(fcast))
+
+missing.id <- sample.submission$id[(sample.submission$id %in% fcast$id)]
+  
